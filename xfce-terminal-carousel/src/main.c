@@ -26,7 +26,7 @@
 #define DOT_SPACING 26
 #define DOT_RADIUS 5.0
 #define STRIP_BASE_WIDTH 220
-#define STRIP_TITLE_MAX_CHARS 48
+#define STRIP_TITLE_WIDTH_PX 240
 #define ACTIVATION_GRACE_MS 2500
 
 /* Terminal Control bridge */
@@ -412,7 +412,7 @@ strip_draw (GtkWidget *widget,
       PangoLayout *layout = gtk_widget_create_pango_layout (widget, NULL);
       PangoAttrList *attrs = pango_attr_list_new ();
       pango_layout_set_ellipsize (layout, PANGO_ELLIPSIZE_END);
-      pango_layout_set_width (layout, STRIP_TITLE_MAX_CHARS * PANGO_SCALE);
+      pango_layout_set_width (layout, STRIP_TITLE_WIDTH_PX * PANGO_SCALE);
       pango_layout_set_text (layout, tab->title != NULL ? tab->title : "", -1);
       pango_attr_list_insert (attrs, pango_attr_scale_new (0.85));
       pango_attr_list_insert (attrs, pango_attr_foreground_new (57000, 57000, 57000));
@@ -423,7 +423,8 @@ strip_draw (GtkWidget *widget,
       g_object_unref (layout);
     }
 
-  first_dot_x = alloc.width - (c->slides->len * DOT_SPACING - (DOT_SPACING - 2 * DOT_RADIUS)) / 2.0;
+  /* right-align the dots with a fixed margin */
+  first_dot_x = alloc.width - 14.0 - DOT_RADIUS - (c->slides->len - 1) * DOT_SPACING;
   for (n = 0; n < c->slides->len; ++n)
     {
       TabState *tab = g_ptr_array_index (c->slides, n);
@@ -475,7 +476,7 @@ strip_button_press (GtkWidget *widget,
   guint n;
 
   gtk_widget_get_allocation (widget, &alloc);
-  first_dot_x = alloc.width - (c->slides->len * DOT_SPACING - (DOT_SPACING - 2 * DOT_RADIUS)) / 2.0;
+  first_dot_x = alloc.width - 14.0 - DOT_RADIUS - (c->slides->len - 1) * DOT_SPACING;
 
   for (n = 0; n < c->slides->len; ++n)
     {
@@ -607,6 +608,12 @@ show_slide (Carousel *c,
     }
 
   c->last_switch = g_get_monotonic_time ();
+
+  /* the activated terminal may have been raised above the strip
+   * (gtk_window_present); keep the indicator visible */
+  if (c->strip != NULL && gtk_widget_get_window (c->strip) != NULL)
+    gdk_window_raise (gtk_widget_get_window (c->strip));
+
   if (c->strip_area != NULL)
     gtk_widget_queue_draw (c->strip_area);
 }
