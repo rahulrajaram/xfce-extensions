@@ -54,6 +54,10 @@ typedef struct
   gchar *title;
   gboolean attention;
   gint64 last_output; /* CLOCK_MONOTONIC usec */
+  gchar **lines;      /* text mirror (Tab.GetLines), oldest first */
+  guint lines_len;
+  PangoLayout *layout; /* cached card-body layout (built when dirty) */
+  gboolean layout_dirty;
 } TabState;
 
 typedef struct
@@ -97,6 +101,9 @@ tab_state_free (TabState *tab)
 {
   g_free (tab->path);
   g_free (tab->title);
+  g_strfreev (tab->lines);
+  if (tab->layout != NULL)
+    g_object_unref (tab->layout);
   g_free (tab);
 }
 
@@ -169,6 +176,64 @@ ensure_proxy (GHashTable *table,
 
   g_hash_table_insert (table, g_strdup (path), proxy);
   return proxy;
+}
+
+
+
+/* Pull the text mirror (Tab.GetLines) for one tab and cache the lines.
+ * Called on the main loop while the overlay is shown. */
+static void
+tab_fetch_lines (TabState *tab,
+                 guint max_lines)
+{
+  GDBusProxy *proxy;
+  GVariant *reply;
+  GVariant *array;
+  GVariantIter it;
+  const gchar *line;
+  GPtrArray *out;
+
+  proxy = g_hash_table_lookup (plasma.tab_proxies, tab->path);
+  if (proxy == NULL)
+    return;
+
+  reply = g_dbus_proxy_call_sync (proxy, "GetLines",
+                                  g_variant_new ("(u)", MAX (max_lines, 1u)),
+                                  G_DBUS_CALL_FLAGS_NO_AUTO_START, 1500,
+                                  NULL, NULL);
+  if (reply == NULL)
+    return;
+
+  out = g_ptr_array_new_with_free_func (g_free);
+  array = g_variant_get_child_value (reply, 0);
+  g_variant_iter_init (&it, array);
+  while (g_variant_iter_loop (&it, "&s", &line))
+    g_ptr_array_add (out, g_strdup (line));
+  g_variant_unref (array);
+  g_variant_unref (reply);
+
+  if (out->len > 0 && (out->len != tab->lines_len
+                       || g_strcmp0 (tab->lines[0], g_ptr_array_index (out, 0)) != 0))
+    {
+      g_strfreev (tab->lines);
+      tab->lines = g_new0 (gchar *, out->len + 1);
+      for (guint i = 0; i < out->len; ++i)
+        tab->lines[i] = g_ptr_array_index (out, i);
+      tab->lines[out->len] = NULL;
+      tab->lines_len = out->len;
+      tab->layout_dirty = TRUE;
+      g_ptr_array_set_free_func (out, NULL);
+    }
+  g_ptr_array_unref (out);
+}
+
+
+
+static void
+fetch_slide_lines (void)
+{
+  for (guint i = 0; i < plasma.slides->len; ++i)
+    tab_fetch_lines (g_ptr_array_index (plasma.slides, i), 30);
 }
 
 
@@ -453,22 +518,76 @@ draw_card (cairo_t *cr,
   pango_cairo_show_layout (cr, layout);
   g_object_unref (layout);
 
-  /* placeholder terminal body: dim rows + cursor block
-   * (slice 3 replaces this with live text mirror lines) */
-  for (guint i = 0; i < BODY_LINES; ++i)
+  /* terminal body: live text mirror lines when available, else a
+   * dim skeleton until the first GetLines refresh lands */
+  if (tab->lines != NULL && tab->lines_len > 0)
     {
-      gdouble ry = y + CARD_TITLE_H + 14 + i * (h - CARD_TITLE_H - 34) / (BODY_LINES - 1);
-      gdouble lw = (60.0 + 55.0 * ((i * 7) % 5) / 4.0) / 100.0 * (w - 56);
-      gboolean cursor = (i == 0);
+      gdouble body_x = x + 28;
+      gdouble body_w = w - 56;
+      gdouble body_y = y + CARD_TITLE_H + 12;
+      guint n = MIN (tab->lines_len, 9u);
 
-      cairo_set_source_rgba (cr, 0.62, 0.66, 0.72, (cursor ? 0.95 : 0.38) * a);
-      cairo_rectangle (cr, x + 28, ry, lw, cursor ? 16.0 : 3.0);
-      cairo_fill (cr);
-      if (cursor)
+      if (tab->layout == NULL || tab->layout_dirty)
         {
-          cairo_set_source_rgba (cr, 0.35, 0.90, 0.45, 0.8 * a);
-          cairo_rectangle (cr, x + 28 + lw + 6, ry, 8.0, 16.0);
+          gchar *joined;
+          gchar **slice;
+          gsize last_len, joined_len;
+          PangoAttrList *attrs;
+          PangoFontDescription *font;
+
+          slice = &tab->lines[tab->lines_len - n];
+          joined = g_strjoinv ("\n", slice);
+          joined_len = strlen (joined);
+          last_len = strlen (slice[n - 1]);
+
+          attrs = pango_attr_list_new ();
+          /* tint only the live prompt line (bottom) green. Pango
+           * colors are 16-bit per channel, unlike cairo's 0..1. */
+          if (last_len < joined_len)
+            {
+              PangoAttribute *attr = pango_attr_foreground_new (0x58 * 257,
+                                                                0xe0 * 257,
+                                                                0x70 * 257);
+              attr->start_index = joined_len - last_len;
+              attr->end_index = joined_len;
+              pango_attr_list_insert (attrs, attr);
+            }
+
+          if (tab->layout != NULL)
+            g_object_unref (tab->layout);
+          tab->layout = gtk_widget_create_pango_layout (plasma.area, joined);
+          font = pango_font_description_from_string ("Monospace 14");
+          pango_layout_set_font_description (tab->layout, font);
+          pango_font_description_free (font);
+          pango_layout_set_width (tab->layout, body_w * PANGO_SCALE);
+          pango_layout_set_wrap (tab->layout, PANGO_WRAP_CHAR);
+          pango_layout_set_attributes (tab->layout, attrs);
+          pango_attr_list_unref (attrs);
+          tab->layout_dirty = FALSE;
+          g_free (joined);
+        }
+
+      cairo_set_source_rgba (cr, 0.78, 0.82, 0.88, 0.95 * a);
+      cairo_move_to (cr, body_x, body_y);
+      pango_cairo_show_layout (cr, tab->layout);
+    }
+  else
+    {
+      for (guint i = 0; i < BODY_LINES; ++i)
+        {
+          gdouble ry = y + CARD_TITLE_H + 14 + i * (h - CARD_TITLE_H - 34) / (BODY_LINES - 1);
+          gdouble lw = (60.0 + 55.0 * ((i * 7) % 5) / 4.0) / 100.0 * (w - 56);
+          gboolean cursor = (i == 0);
+
+          cairo_set_source_rgba (cr, 0.62, 0.66, 0.72, (cursor ? 0.95 : 0.38) * a);
+          cairo_rectangle (cr, x + 28, ry, lw, cursor ? 16.0 : 3.0);
           cairo_fill (cr);
+          if (cursor)
+            {
+              cairo_set_source_rgba (cr, 0.35, 0.90, 0.45, 0.8 * a);
+              cairo_rectangle (cr, x + 28 + lw + 6, ry, 8.0, 16.0);
+              cairo_fill (cr);
+            }
         }
     }
 
@@ -780,9 +899,12 @@ poll_tick (gpointer data)
     {
       if (idle_ms < (gint64) timeout * 1000 - 250 || p->slides->len == 0)
         plasma_stop (p);
+      else
+        fetch_slide_lines ();
     }
   else if (idle_ms >= (gint64) timeout * 1000 && p->slides->len > 0)
     {
+      fetch_slide_lines ();
       /* snap rail target to the slide we are about to show */
       show_overlay (p);
     }

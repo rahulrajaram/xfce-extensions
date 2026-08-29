@@ -86,5 +86,20 @@ working unchanged while the plasma lands.
     (GMainLoop), gtk_css_provider_load_from_data, monitors via
     GListModel, no skip-taskbar/accept-focus hints (deferred to
     layer-shell/Wayland phase).
-- ckpt 3 (next): slice 3 — text mirror (bridge Tab last-N-lines -> fake
-  terminal cards).
+- ckpt 3 (slice 3 DONE — text mirror): bridge gained additive
+  Tab.GetLines(u max_lines)->as (terminal-control-bridge.xml +
+  terminal-screen.c + terminal-bridge.c, committed 3cff0950 on
+  terminal-control-bridge) returning the visible viewport tail
+  (vte_terminal_get_text_range) with a scrollback fallback
+  (vte_terminal_get_text) for unrealized background tabs. Plasma
+  fetches lines per slide tab every poll and renders monospace fake-
+  terminal text, green-tinted prompt line (16-bit Pango colors — the
+  ive bug this slice: pango_attr_foreground_new takes 0..65535 not
+  0..255). tests/plasma-smoke.sh gained A6 (green prompt-line pixel
+  assertion, 2600+ px green) — ALL PASS. Also hardened the smoke test
+  against the outer-shell heredoc expansion trap: every `$` meant for
+  the inner script must be backslash-escaped or the outer `set -u`
+  shell aborts mid-heredoc (vacuous green run).
+- ckpt 4 (next): slice 4 — pixel-mirror spike (Tab.Screenshot -> PNG
+  with VTE offscreen rendering; feasibility report before wiring);
+  then slice 5 tests/run_all.sh (strip + plasma suites) and doc update.
