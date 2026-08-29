@@ -531,6 +531,12 @@ show_strip (Carousel *c)
 
   c->blink_start = g_get_monotonic_time ();
   c->blink_id = gdk_threads_add_timeout (BLINK_INTERVAL_MS, strip_blink, c);
+
+  /* name the X window so tests (xdotool) can find the strip */
+  if (gtk_widget_get_realized (c->strip))
+    XStoreName (GDK_DISPLAY_XDISPLAY (gtk_widget_get_display (c->strip)),
+                GDK_WINDOW_XID (gtk_widget_get_window (c->strip)),
+                "xfce4-terminal-carousel-strip");
 }
 
 
@@ -585,6 +591,8 @@ show_slide (Carousel *c,
 
   c->current = index;
   tab = g_ptr_array_index (c->slides, index);
+  g_debug ("slide: %s (%s)", tab->title != NULL ? tab->title : "",
+           tab->attention ? "attention" : "active");
 
   proxy = g_hash_table_lookup (carousel.tab_proxies, tab->path);
   if (proxy != NULL)

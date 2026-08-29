@@ -16,6 +16,7 @@ add_project_arguments(
 
 glib = dependency('glib-2.0', version: '>= 2.50')
 gtk = dependency('gtk+-3.0')
+x11 = dependency('x11')
 xscrnsaver = dependency('xscrnsaver')
 xfconf = dependency('libxfconf-0', required: false)
 
@@ -33,7 +34,7 @@ executable(
   'xfce4-terminal-carousel',
   'src/main.c',
   include_directories: inc,
-  dependencies: [glib, gtk, xscrnsaver, xfconf],
+  dependencies: [glib, gtk, x11, xscrnsaver, xfconf],
   install: true,
 )
 
