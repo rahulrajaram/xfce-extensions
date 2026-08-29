@@ -119,4 +119,8 @@ working unchanged while the plasma lands.
   plasma-smoke.sh extended in slice 3 (A6 text mirror).
   `tests/run_all.sh` -> ALL SUITES PASS. Strip daemon code untouched;
   strip behavior re-verified against its own suite (priority 6 kept).
-- CLOSEOUT: all slices green. Campaign complete.
+- CLOSEOUT: all slices green. Harness hardened: Xvfb readiness poll with
+  retry (SIGKILL leaves stale .X97-lock; the first serial run lost its
+  X server mid-suite), pkill -x Xvfb, run_all surfaces failing suite
+  logs. Two consecutive `tests/run_all.sh` runs green. Campaign
+  complete.

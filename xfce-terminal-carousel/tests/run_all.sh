@@ -9,11 +9,16 @@ fail=0
 
 for t in strip-smoke plasma-smoke; do
   echo "===== $t ====="
+  LOGFILE="/tmp/${t}/test.log"
   if bash "$ROOT/tests/$t.sh" >/dev/null 2>&1; then
     echo "$t: PASS"
   else
     echo "$t: FAIL"
     fail=1
+    if [ -f "$LOGFILE" ]; then
+      echo "--- $t log (tail) ---"
+      tail -15 "$LOGFILE"
+    fi
   fi
 done
 

@@ -26,15 +26,32 @@ mkdir -p "$OUT"; : > "$LOG"
 
 killall_env() {
   pkill -9 -f 'Xvfb :97' 2>/dev/null
+  pkill -9 -x Xvfb 2>/dev/null
   pkill -9 -f 'build/terminal/xfce4-termina[l]' 2>/dev/null
   pkill -9 -f 'build/xfce4-terminal-carouse[l]' 2>/dev/null
+  pkill -9 -f 'build/xfce4-terminal-plasm[a]' 2>/dev/null
   pkill -9 -x xfconfd 2>/dev/null
+  sleep 1
+  rm -f /tmp/.X97-lock
 }
-killall_env; sleep 1
-rm -f /tmp/.X97-lock
 
-Xvfb "$DISPLAY_NUM" -screen 0 1280x800x24 &
-sleep 1.5
+start_xvfb() {
+  for attempt in 1 2; do
+    Xvfb "$DISPLAY_NUM" -screen 0 1280x800x24 &
+    for i in $(seq 1 10); do
+      if DISPLAY="$DISPLAY_NUM" xdpyinfo >/dev/null 2>&1; then return 0; fi
+      sleep 0.5
+    done
+    killall_env
+  done
+  echo "Xvfb failed to start on $DISPLAY_NUM"
+  return 1
+}
+
+killall_env
+echo "Xvfb now starting on $DISPLAY_NUM" >&2
+start_xvfb || exit 2
+sleep 0.5
 
 timeout 90 dbus-run-session -- bash -s > "$LOG" 2>&1 <<EOS
 set -u
