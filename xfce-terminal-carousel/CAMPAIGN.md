@@ -100,6 +100,23 @@ working unchanged while the plasma lands.
   against the outer-shell heredoc expansion trap: every `$` meant for
   the inner script must be backslash-escaped or the outer `set -u`
   shell aborts mid-heredoc (vacuous green run).
-- ckpt 4 (next): slice 4 — pixel-mirror spike (Tab.Screenshot -> PNG
-  with VTE offscreen rendering; feasibility report before wiring);
-  then slice 5 tests/run_all.sh (strip + plasma suites) and doc update.
+- ckpt 4 (slice 4 DONE — pixel-mirror SPIKE): Tab.Screenshot(u
+  max_width)->ay added to the bridge (committed 0205b753) rendering the
+  real VTE offscreen via gtk_widget_draw -> cairo -> PNG (char-grid
+  resolution, e.g. 1100x520 for 100x20). ForceGVariant annotation
+  required: codegen otherwise maps ay to a NUL-terminated C string that
+  truncates PNGs at the first zero byte. FEASIBILITY VERDICT: mapped
+  (active) tabs render correct pixels (real colors/escape art);
+  unmapped background tabs render black (all-black PNG proven). The
+  carousel ACTIVATES the tab it displays, so the tab is mapped at
+  screenshot time — pixel mirror is feasible for its intended use, NOT
+  as a generic background-tab snapshotter. Wiring decision: defer in-
+  plasma wiring to a later phase; the bridge method stays as additive
+  API. Next phase could render the slide tab's PNG as the card backdrop.
+- ckpt 5 (slice 5/6 DONE — test suite + strip check): tests/ gained
+  strip-smoke.sh (S1 strip maps, S2 attention dots green, S3 blink/ring
+  animation, S4 click-to-jump stops, S5 input stops) and run_all.sh;
+  plasma-smoke.sh extended in slice 3 (A6 text mirror).
+  `tests/run_all.sh` -> ALL SUITES PASS. Strip daemon code untouched;
+  strip behavior re-verified against its own suite (priority 6 kept).
+- CLOSEOUT: all slices green. Campaign complete.

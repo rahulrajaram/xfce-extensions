@@ -25,6 +25,38 @@ package that consumes xfce4-terminal's *Terminal Control* D-Bus API
 - Any keyboard or mouse activity stops the carousel immediately.
 - Clicking a light jumps to that tab and stops the carousel.
 
+## Plasma screen (GTK4 overlay, experimental)
+
+The package also ships `xfce4-terminal-plasma`, a standalone GTK4
+overlay that replaces the strip display with a dimmed fullscreen card
+carousel after idle: each active tab becomes a card showing its live
+terminal lines (text mirror, see below), with a smooth rail animation
+driven by a frame-clock tick callback. Same xfconf channel, same idle
+logic; it runs as its own process, so it can coexist with the strip.
+
+- Text mirror: the Control bridge gained `Tab.GetLines(u max)` — the
+  last visible rows of a tab as plain strings (with a scrollback
+  fallback for background tabs). The plasma fetches the mirror for the
+  slide tabs on every poll and draws them as fake-terminal cards
+  (monospace, green prompt line).
+- Pixel mirror (spike, not wired): `Tab.Screenshot(u max_width)`
+  renders a tab's VTE offscreen into a PNG. Verified feasible for
+  mapped (active) tabs — which is exactly when the carousel shows a
+  tab — and unusable for unmapped background tabs (renders black).
+  Decision pending on wiring it as the card backdrop.
+
+## Tests
+
+`tests/run_all.sh` runs the behavior suites under Xvfb + a private
+D-Bus session (they must not run concurrently):
+
+- `tests/strip-smoke.sh` — strip maps after idle, attention dots are
+  rendered green, blink/ring animation, click-to-jump stops, input
+  stops.
+- `tests/plasma-smoke.sh` — overlay maps after idle, cards drawn,
+  carousel animates/rotates, text mirror rendered in cards, click
+  hides, re-appears after idle.
+
 ## Making the green lights meaningful
 
 The light means "this terminal rang the bell and is waiting for you".
@@ -82,7 +114,9 @@ object `/org/xfce/Terminal`:
 - `org.xfce.Terminal.Control.Tab` — properties `Title (s)`,
   `Active (b)`, `NeedsAttention (b)`, `HasForegroundProcess (b)`,
   `LastOutput (x)` (CLOCK_MONOTONIC µs, 0 = never),
-  `WorkingDirectory (s)`, `Pid (u)`; method `Activate()`
+  `WorkingDirectory (s)`, `Pid (u)`; method `Activate()`;
+  text mirror `GetLines(u max) -> as`; pixel mirror
+  `Screenshot(u max_width) -> ay` (spike; see Plasma screen section)
 
 Property updates arrive via the standard
 `org.freedesktop.DBus.Properties.PropertiesChanged` signal. This
