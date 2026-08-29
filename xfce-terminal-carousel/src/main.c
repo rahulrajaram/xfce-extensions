@@ -291,7 +291,8 @@ bridge_refresh (void)
   GVariant *array;
   GVariantIter witer;
   const gchar *win_path;
-  GHashTable *seen;
+  GHashTable *seen_windows;
+  GHashTable *seen_tabs;
 
   if (carousel.manager == NULL)
     return FALSE;
@@ -310,7 +311,8 @@ bridge_refresh (void)
       return FALSE;
     }
 
-  seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  seen_windows = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  seen_tabs = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   array = g_variant_get_child_value (reply, 0);
   g_variant_iter_init (&witer, array);
   while (g_variant_iter_loop (&witer, "&o", &win_path))
@@ -320,7 +322,7 @@ bridge_refresh (void)
       GVariantIter titer;
       const gchar *tab_path;
 
-      g_hash_table_add (seen, g_strdup (win_path));
+      g_hash_table_add (seen_windows, g_strdup (win_path));
 
       wproxy = ensure_proxy (carousel.win_proxies, win_path, CONTROL_WINDOW_IFACE,
                              carousel.manager_service);
@@ -345,6 +347,8 @@ bridge_refresh (void)
           if (tproxy == NULL)
             continue;
 
+          g_hash_table_add (seen_tabs, g_strdup (tab_path));
+
           tab = g_hash_table_lookup (carousel.tabs, tab_path);
           if (tab == NULL)
             {
@@ -365,11 +369,12 @@ bridge_refresh (void)
   g_variant_unref (array);
   g_variant_unref (reply);
 
-  drop_stale (carousel.tabs, seen);
-  drop_stale (carousel.tab_proxies, seen);
-  drop_stale (carousel.win_proxies, seen);
+  drop_stale (carousel.tabs, seen_tabs);
+  drop_stale (carousel.tab_proxies, seen_tabs);
+  drop_stale (carousel.win_proxies, seen_windows);
 
-  g_hash_table_unref (seen);
+  g_hash_table_unref (seen_windows);
+  g_hash_table_unref (seen_tabs);
   return TRUE;
 }
 
@@ -407,7 +412,7 @@ strip_draw (GtkWidget *widget,
       PangoLayout *layout = gtk_widget_create_pango_layout (widget, NULL);
       PangoAttrList *attrs = pango_attr_list_new ();
       pango_layout_set_ellipsize (layout, PANGO_ELLIPSIZE_END);
-      pango_layout_set_width (STRIP_TITLE_MAX_CHARS * PANGO_SCALE);
+      pango_layout_set_width (layout, STRIP_TITLE_MAX_CHARS * PANGO_SCALE);
       pango_layout_set_text (layout, tab->title != NULL ? tab->title : "", -1);
       pango_attr_list_insert (attrs, pango_attr_scale_new (0.85));
       pango_attr_list_insert (attrs, pango_attr_foreground_new (57000, 57000, 57000));
@@ -558,6 +563,7 @@ carousel_stop (Carousel *c)
 
   if (c->running)
     {
+      g_debug ("carousel stopped: user is back");
       c->running = FALSE;
       g_ptr_array_set_size (c->slides, 0);
       c->current = 0;
@@ -619,6 +625,7 @@ carousel_start (Carousel *c)
   guint interval;
 
   c->running = TRUE;
+  g_debug ("carousel starting with %u active tabs", c->slides->len);
   show_strip (c);
   show_slide (c, 0);
 
@@ -651,12 +658,14 @@ poll_tick (gpointer data)
   resolve_service ();
   if (carousel.manager == NULL)
     {
+      g_debug ("no terminal control bridge found");
       carousel_stop (c);
       return TRUE;
     }
 
   if (!bridge_refresh ())
     {
+      g_debug ("bridge refresh failed");
       carousel_stop (c);
       return TRUE;
     }
@@ -678,9 +687,12 @@ poll_tick (gpointer data)
   idle_ms = query_idle_ms ();
   if (idle_ms < 0)
     {
+      g_debug ("no X11 idle backend (Wayland?)");
       carousel_stop (c);
       return TRUE;
     }
+
+  g_debug ("poll: idle=%" G_GINT64_FORMAT "ms, %u active tabs", idle_ms, c->slides->len);
 
   if (c->running)
     {
