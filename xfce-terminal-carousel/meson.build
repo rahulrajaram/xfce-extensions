@@ -16,9 +16,12 @@ add_project_arguments(
 
 glib = dependency('glib-2.0', version: '>= 2.50')
 gtk = dependency('gtk+-3.0')
+gtk4 = dependency('gtk4', version: '>= 4.8')
 x11 = dependency('x11')
 xscrnsaver = dependency('xscrnsaver')
 xfconf = dependency('libxfconf-0', required: false)
+cc = meson.get_compiler('c')
+m = cc.find_library('m', required: false)
 
 conf = configuration_data()
 conf.set_quoted('GETTEXT_PACKAGE', meson.project_name())
@@ -35,6 +38,14 @@ executable(
   'src/main.c',
   include_directories: inc,
   dependencies: [glib, gtk, x11, xscrnsaver, xfconf],
+  install: true,
+)
+
+executable(
+  'xfce4-terminal-plasma',
+  'src/plasma.c',
+  include_directories: inc,
+  dependencies: [glib, gtk4, x11, xscrnsaver, xfconf, m],
   install: true,
 )
 
