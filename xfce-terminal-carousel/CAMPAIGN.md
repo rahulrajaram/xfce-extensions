@@ -123,4 +123,7 @@ working unchanged while the plasma lands.
   retry (SIGKILL leaves stale .X97-lock; the first serial run lost its
   X server mid-suite), pkill -x Xvfb, run_all surfaces failing suite
   logs. Two consecutive `tests/run_all.sh` runs green. Campaign
-  complete.
+  complete.- POST-CAMPAIGN (operator request): plasma now drifts at a constant
+  ~40px/s (configurable /rail-speed), pauses while the pointer hovers
+  over a card, and q/Escape quits. Re-recorded demo GIF/MP4 at real
+  pace. See commits 7ff61ed, 0aa2a39.
