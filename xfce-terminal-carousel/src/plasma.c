@@ -24,7 +24,8 @@
 #include <config.h>
 
 #define POLL_INTERVAL_MS 2000
-#define SLIDE_ANIM_MS 450
+#define RAIL_SPEED_DEFAULT 20  /* px/s continuous carousel drift */
+#define RAIL_ACCEL_TAU 0.5     /* s to ramp up to cruising speed */
 
 #define CARD_W 620
 #define CARD_H 380
@@ -47,6 +48,7 @@
 #define CONF_TIMEOUT "/timeout"
 #define CONF_SLIDE_INTERVAL "/slide-interval"
 #define CONF_ACTIVITY_WINDOW "/activity-window"
+#define CONF_RAIL_SPEED "/rail-speed" /* uint px/s */
 
 typedef struct
 {
@@ -75,7 +77,9 @@ typedef struct
   gboolean running;
   GPtrArray *slides; /* TabState* */
   guint current;
-  gdouble rail;      /* continuous carousel position */
+  gdouble rail;      /* cyclic carousel position (fractional index) */
+  gdouble rail_vel;  /* index/s while drifting */
+  gdouble tick_last; /* monotonic seconds of the previous tick */
 
   /* overlay UI (GTK4) */
   GtkWidget *window;
@@ -633,22 +637,82 @@ plasma_draw (GtkDrawingArea *area,
 
 
 
-/* tick callback: drives the rail toward the integer target (smooth
- * carousel) and proves animation via the frame counter */
+/* bring the given slide's tab forward (same as the strip daemon), and
+ * log the transition */
+static void
+plasma_activate_slide (Plasma *p,
+                       guint index)
+{
+  TabState *tab;
+  GDBusProxy *proxy;
+  GError *error = NULL;
+
+  if (index >= p->slides->len)
+    return;
+
+  tab = g_ptr_array_index (p->slides, index);
+  g_debug ("plasma slide -> %u (%s)", index,
+           tab->title != NULL ? tab->title : "");
+
+  proxy = g_hash_table_lookup (p->tab_proxies, tab->path);
+  if (proxy != NULL)
+    {
+      g_dbus_proxy_call_sync (proxy, "Activate", g_variant_new ("()"),
+                              G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, NULL, &error);
+      if (error != NULL)
+        {
+          g_debug ("Activate failed: %s", error->message);
+          g_error_free (error);
+        }
+    }
+}
+
+
+
+/* tick callback: drive a continuous, smooth carousel drift at a fixed
+ * ground speed (default ~20 px/s), easing up from a standstill, wrapping
+ * seamlessly through the cyclic card set, and activating the tab that is
+ * now centred. The recorded GIF is sampled at real time so the on-screen
+ * pace matches reality. */
 static gboolean
 plasma_tick (GtkWidget *widget,
              GdkFrameClock *clock,
              gpointer data)
 {
   Plasma *p = data;
-  gdouble target = p->current;
 
   if (p->running && p->slides->len > 0)
     {
-      gdouble k = 1.0 - exp (-1.0 / 6.0); /* ~16fps settle toward target */
-      p->rail += (target - p->rail) * k;
-      if (ABS (p->rail - target) < 0.001)
-        p->rail = target;
+      gdouble pitch = CARD_W + CARD_GAP; /* px per card */
+      guint n = p->slides->len;
+      gdouble now = g_get_monotonic_time () / 1e6;
+      gdouble dt = now - p->tick_last;
+      gdouble max_idx_s;
+      guint active;
+
+      if (dt <= 0.0 || dt > 0.25)
+        dt = 1.0 / 60.0;
+      p->tick_last = now;
+
+      max_idx_s = (gdouble) conf_get_uint (CONF_RAIL_SPEED, RAIL_SPEED_DEFAULT) / pitch;
+      /* smooth accel toward cruising speed; decel handled on hide */
+      p->rail_vel += (max_idx_s - p->rail_vel) * (1.0 - exp (-dt / RAIL_ACCEL_TAU));
+      p->rail += p->rail_vel * dt;
+
+      /* seamless cyclic wrap: card n sits at the same place as card 0 */
+      if (p->rail >= n)
+        p->rail -= n;
+      else if (p->rail < 0)
+        p->rail += n;
+
+      /* activate the tab nearest the centre */
+      active = ((guint) floor (p->rail + 0.5)) % n;
+      if (active != p->current)
+        {
+          p->current = active;
+          plasma_activate_slide (p, active);
+        }
+
       /* queue the drawing AREA explicitly (queuing only the toplevel may
        * not reach child widgets in GTK4) plus the window */
       if (p->area != NULL)
@@ -656,7 +720,8 @@ plasma_tick (GtkWidget *widget,
       gtk_widget_queue_draw (widget);
       p->frame++;
       if ((p->frame % 120) == 0)
-        g_debug ("plasma frame %u (rail=%.2f)", p->frame, p->rail);
+        g_debug ("plasma frame %u (rail=%.2f vel=%.3f idx/s)",
+                 p->frame, p->rail, p->rail_vel);
     }
 
   return G_SOURCE_CONTINUE;
@@ -736,23 +801,6 @@ on_click (GtkGestureClick *gesture,
 
 
 
-static gboolean
-plasma_advance (gpointer data)
-{
-  Plasma *p = data;
-
-  if (!p->running || p->slides->len == 0)
-    return FALSE;
-
-  p->current = (p->current + 1) % p->slides->len;
-  p->anim_start = g_get_monotonic_time ();
-  g_debug ("plasma slide -> %u (%s)", p->current,
-           ((TabState *) g_ptr_array_index (p->slides, p->current))->title);
-  return TRUE;
-}
-
-
-
 static void
 show_overlay (Plasma *p)
 {
@@ -802,14 +850,13 @@ show_overlay (Plasma *p)
 
   p->running = TRUE;
   p->rail = p->current = 0;
+  p->rail_vel = 0.0;
+  p->tick_last = g_get_monotonic_time () / 1e6;
   p->anim_start = g_get_monotonic_time ();
   gtk_widget_set_visible (p->window, TRUE);
   gtk_window_present (GTK_WINDOW (p->window));
 
   g_debug ("plasma overlay shown (%u cards)", p->slides->len);
-  p->slide_id = g_timeout_add_seconds (
-      MAX (2u, conf_get_uint (CONF_SLIDE_INTERVAL, 6)),
-      plasma_advance, p);
 }
 
 

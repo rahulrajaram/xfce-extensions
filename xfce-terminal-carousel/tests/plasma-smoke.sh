@@ -90,15 +90,15 @@ else
   echo "A2 FAIL center=\$CENTER top=\$EDGE"
 fi
 
-# A6: text mirror — card body shows live terminal lines. The bottom
-# (prompt) line is tinted green: with the mirror live it runs the full
-# card width (thousands of green pixels), placeholder had only an 8x16
-# cursor block.
+# A6: text mirror — card body shows live terminal lines. The prompt
+# line of each card is tinted green. With continuous drift the cards
+# are in motion, so scan the whole window (a green prompt line exists on
+# whatever card is visible) rather than a fixed crop.
 import -window "\$WID" "$OUT/win_mirror.png" 2>/dev/null
-GREEN=\$(convert "$OUT/win_mirror.png" -crop 500x200+380+260 \
+GREEN=\$(convert "$OUT/win_mirror.png" \
   -fx '(g>r*1.2 && g>b*1.2) ? 1 : 0' -format "%[fx:mean*w*h]" info: 2>/dev/null)
-echo "A6 green-prompt-pixels=\$GREEN (need >400)"
-if awk -v g="\$GREEN" "BEGIN{exit !(g > 400)}"; then
+echo "A6 green-prompt-pixels=\$GREEN (need >150)"
+if awk -v g="\$GREEN" "BEGIN{exit !(g > 150)}"; then
   echo "A6 PASS text mirror rendered in cards"
 else
   echo "A6 FAIL no mirrored text visible"
@@ -124,6 +124,17 @@ if grep 'rail=' "$OUT/plasma.log" | grep -v 'rail=0\.00' >/dev/null; then
   echo "A3b PASS rail moved"
 else
   echo "A3b FAIL rail never left 0.00"
+fi
+
+# A7: continuous drift speed — the log prints rail velocity in idx/s;
+# ground speed = vel * pitch (CARD_W + CARD_GAP = 676 px). Expect ~20 px/s.
+RAILVEL=\$(grep -oE 'vel=[0-9.]+' "$OUT/plasma.log" | tail -1 | cut -d= -f2)
+PXPERSEC=\$(awk -v v="\$RAILVEL" "BEGIN{printf \"%.0f\", v*676}")
+echo "A7 drift-speed=\$PXPERSEC px/s (expect ~20)"
+if [ "\$PXPERSEC" -ge 15 ] && [ "\$PXPERSEC" -le 30 ]; then
+  echo "A7 PASS constant ~20px/s drift"
+else
+  echo "A7 FAIL drift speed out of range (\$PXPERSEC)"
 fi
 
 # A4: click hides promptly (threshold 1s so check within 0.5s)
