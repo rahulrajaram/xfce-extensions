@@ -24,7 +24,7 @@
 #include <config.h>
 
 #define POLL_INTERVAL_MS 2000
-#define RAIL_SPEED_DEFAULT 20  /* px/s continuous carousel drift */
+#define RAIL_SPEED_DEFAULT 40  /* px/s continuous carousel drift */
 #define RAIL_ACCEL_TAU 0.5     /* s to ramp up to cruising speed */
 
 #define CARD_W 620
@@ -80,6 +80,7 @@ typedef struct
   gdouble rail;      /* cyclic carousel position (fractional index) */
   gdouble rail_vel;  /* index/s while drifting */
   gdouble tick_last; /* monotonic seconds of the previous tick */
+  gboolean hovering; /* pointer inside the overlay -> pause the drift */
 
   /* overlay UI (GTK4) */
   GtkWidget *window;
@@ -670,10 +671,11 @@ plasma_activate_slide (Plasma *p,
 
 
 /* tick callback: drive a continuous, smooth carousel drift at a fixed
- * ground speed (default ~20 px/s), easing up from a standstill, wrapping
- * seamlessly through the cyclic card set, and activating the tab that is
- * now centred. The recorded GIF is sampled at real time so the on-screen
- * pace matches reality. */
+ * ground speed (default ~40 px/s), easing up from a standstill, easing
+ * to a stop while the pointer hovers the overlay, wrapping seamlessly
+ * through the cyclic card set, and activating the tab that is centred.
+ * The recorded GIF is sampled at real time so the on-screen pace
+ * matches reality. */
 static gboolean
 plasma_tick (GtkWidget *widget,
              GdkFrameClock *clock,
@@ -687,16 +689,19 @@ plasma_tick (GtkWidget *widget,
       guint n = p->slides->len;
       gdouble now = g_get_monotonic_time () / 1e6;
       gdouble dt = now - p->tick_last;
-      gdouble max_idx_s;
+      gdouble target_vel, max_idx_s;
       guint active;
 
       if (dt <= 0.0 || dt > 0.25)
         dt = 1.0 / 60.0;
       p->tick_last = now;
 
+      /* cruise speed pauses to zero while the pointer is over the
+       * overlay, so a card can be read; resumes when the pointer leaves */
       max_idx_s = (gdouble) conf_get_uint (CONF_RAIL_SPEED, RAIL_SPEED_DEFAULT) / pitch;
-      /* smooth accel toward cruising speed; decel handled on hide */
-      p->rail_vel += (max_idx_s - p->rail_vel) * (1.0 - exp (-dt / RAIL_ACCEL_TAU));
+      target_vel = p->hovering ? 0.0 : max_idx_s;
+      /* smooth accel/decel toward target; decel handled on hide */
+      p->rail_vel += (target_vel - p->rail_vel) * (1.0 - exp (-dt / RAIL_ACCEL_TAU));
       p->rail += p->rail_vel * dt;
 
       /* seamless cyclic wrap: card n sits at the same place as card 0 */
@@ -719,9 +724,10 @@ plasma_tick (GtkWidget *widget,
         gtk_widget_queue_draw (p->area);
       gtk_widget_queue_draw (widget);
       p->frame++;
-      if ((p->frame % 120) == 0)
-        g_debug ("plasma frame %u (rail=%.2f vel=%.3f idx/s)",
-                 p->frame, p->rail, p->rail_vel);
+      if ((p->frame % 120) == 1)
+        g_debug ("plasma frame %u (rail=%.2f vel=%.3f idx/s%s)",
+                 p->frame, p->rail, p->rail_vel,
+                 p->hovering ? " HOVER" : "");
     }
 
   return G_SOURCE_CONTINUE;
@@ -750,6 +756,7 @@ plasma_hide_immediate (Plasma *p)
   p->rail = p->current = 0;
   p->frame = 0;
   p->running = FALSE;
+  p->hovering = FALSE;
   g_ptr_array_set_size (p->slides, 0);
   g_debug ("plasma hidden (user is back)");
 }
@@ -763,7 +770,86 @@ on_key_pressed (GtkEventControllerKey *controller,
                 GdkModifierType state,
                 gpointer data)
 {
+  /* q or Escape quits the carousel motion explicitly; any other key also
+   * dismisses the overlay (user is back). */
+  if (keyval == GDK_KEY_q || keyval == GDK_KEY_Q || keyval == GDK_KEY_Escape)
+    g_debug ("explicit quit key (%u)", keyval);
   plasma_hide_immediate (data);
+}
+
+
+
+/* hover = pointer over a card (not just anywhere on the fullscreen
+ * overlay): same layout math as the draw/click path. */
+static void
+plasma_update_hover (Plasma *p,
+                     gdouble x,
+                     gdouble y)
+{
+  gdouble cx, cy, card_x;
+  gboolean over = FALSE;
+  guint n = p->slides != NULL ? p->slides->len : 0;
+
+  if (!p->running || n == 0)
+    return;
+
+  cx = gtk_widget_get_width (p->area) / 2.0;
+  cy = gtk_widget_get_height (p->area) / 2.0;
+
+  for (guint i = 0; i < n; ++i)
+    {
+      gdouble dist = (gdouble) i - p->rail;
+      card_x = cx + dist * (CARD_W + CARD_GAP);
+      if (x >= card_x - CARD_W / 2.0 && x <= card_x + CARD_W / 2.0
+          && y >= cy - CARD_H / 2.0 && y <= cy + CARD_H / 2.0)
+        {
+          over = TRUE;
+          break;
+        }
+    }
+
+  if (over != p->hovering)
+    {
+      p->hovering = over;
+      g_debug ("hover %s", over ? "over card (pausing)" : "left card (resuming)");
+    }
+}
+
+
+
+static void
+on_pointer_enter (GtkEventControllerMotion *controller,
+                  gdouble x,
+                  gdouble y,
+                  gpointer data)
+{
+  plasma_update_hover (data, x, y);
+}
+
+
+
+static void
+on_pointer_motion (GtkEventControllerMotion *controller,
+                   gdouble x,
+                   gdouble y,
+                   gpointer data)
+{
+  plasma_update_hover (data, x, y);
+}
+
+
+
+static void
+on_pointer_leave (GtkEventControllerMotion *controller,
+                  gpointer data)
+{
+  Plasma *p = data;
+  if (p->hovering)
+    {
+      p->hovering = FALSE;
+      g_debug ("hover left (resuming)");
+    }
+  gtk_widget_queue_draw (p->area);
 }
 
 
@@ -834,6 +920,13 @@ show_overlay (Plasma *p)
       gtk_widget_add_controller (p->window, GTK_EVENT_CONTROLLER (click));
       g_signal_connect (click, "pressed", G_CALLBACK (on_click), p);
 
+      /* hover tracking: pause the drift while the pointer is inside */
+      GtkEventController *motion = gtk_event_controller_motion_new ();
+      gtk_widget_add_controller (p->window, GTK_EVENT_CONTROLLER (motion));
+      g_signal_connect (motion, "enter", G_CALLBACK (on_pointer_enter), p);
+      g_signal_connect (motion, "motion", G_CALLBACK (on_pointer_motion), p);
+      g_signal_connect (motion, "leave", G_CALLBACK (on_pointer_leave), p);
+
       monitors = gdk_display_get_monitors (gdk_display_get_default ());
       if (monitors != NULL && g_list_model_get_n_items (monitors) > 0)
         monitor = g_list_model_get_item (monitors, 0);
@@ -852,6 +945,7 @@ show_overlay (Plasma *p)
   p->rail = p->current = 0;
   p->rail_vel = 0.0;
   p->tick_last = g_get_monotonic_time () / 1e6;
+  p->hovering = FALSE;
   p->anim_start = g_get_monotonic_time ();
   gtk_widget_set_visible (p->window, TRUE);
   gtk_window_present (GTK_WINDOW (p->window));
@@ -875,6 +969,7 @@ plasma_stop (Plasma *p)
   p->rail = p->current = 0;
   p->frame = 0;
   p->running = FALSE;
+  p->hovering = FALSE;
   g_ptr_array_set_size (p->slides, 0);
 }
 
@@ -944,7 +1039,11 @@ poll_tick (gpointer data)
 
   if (p->running)
     {
-      if (idle_ms < (gint64) timeout * 1000 - 250 || p->slides->len == 0)
+      /* while the pointer hovers the overlay we keep it up (paused at
+       * zero speed) so the user can read a card; it only dismisses once
+       * the pointer has left and idle dropped below the threshold */
+      if (!p->hovering && (idle_ms < (gint64) timeout * 1000 - 250
+                           || p->slides->len == 0))
         plasma_stop (p);
       else
         fetch_slide_lines ();

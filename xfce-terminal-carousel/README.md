@@ -30,9 +30,24 @@ package that consumes xfce4-terminal's *Terminal Control* D-Bus API
 The package also ships `xfce4-terminal-plasma`, a standalone GTK4
 overlay that replaces the strip display with a dimmed fullscreen card
 carousel after idle: each active tab becomes a card showing its live
-terminal lines (text mirror, see below), with a smooth rail animation
-driven by a frame-clock tick callback. Same xfconf channel, same idle
-logic; it runs as its own process, so it can coexist with the strip.
+terminal lines (text mirror, see below), with a smooth continuous
+carousel drift driven by a frame-clock tick callback. Same xfconf
+channel, same idle logic; it runs as its own process, so it can coexist
+with the strip.
+
+Plasma controls:
+
+- The carousel drifts at a constant ground speed so the on-screen pace
+  is predictable (configurable, default 40 px/s).
+- **Hover** over a card pauses the drift so it can be read; move the
+  pointer off the cards and it resumes.
+- **`q` / `Escape`** quits the carousel and hides the overlay. Any
+  other key or a click also dismisses it.
+
+```bash
+# carousel speed in pixels/second (default 40)
+xfconf-query -c xfce4-terminal-carousel -p /rail-speed -n -t uint -s 40
+```
 
 - Text mirror: the Control bridge gained `Tab.GetLines(u max)` — the
   last visible rows of a tab as plain strings (with a scrollback

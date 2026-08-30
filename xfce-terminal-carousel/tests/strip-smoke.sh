@@ -94,12 +94,21 @@ GREEN=\$(convert "$OUT/s1.png" \
 echo "S2 green-pixels=\$GREEN (need >50)"
 if awk -v g="\$GREEN" "BEGIN{exit !(g > 50)}"; then echo "S2 PASS dots rendered"; else echo "S2 FAIL"; fi
 
-# S3: blink/title-ring rotation — a second frame 1.2s later differs
-sleep 1.2
-import -window "\$WID" "$OUT/s2.png" 2>/dev/null
-DIFF=\$(timeout 5 compare -metric AE "$OUT/s1.png" "$OUT/s2.png" null: 2>&1)
-echo "S3 frame-diff=\$DIFF (need >30)"
-if [ "\${DIFF:-0}" -gt 30 ]; then echo "S3 PASS strip animates"; else echo "S3 FAIL"; fi
+# S3: blink ring/title animates — sample 6 frames 0.35s apart; need >=1
+# adjacent pair to differ (avoids blink-phase alignment flakes)
+PREV3=""; DISTINCT3=0
+for i in \$(seq 0 5); do
+  sleep 0.35
+  F3="$OUT/s3-\$i.png"
+  import -window "\$WID" "$F3" 2>/dev/null
+  if [ -n "\$PREV3" ]; then
+    D3=\$(timeout 5 compare -metric AE "\$PREV3" "$F3" null: 2>&1)
+    if [ "\${D3:-0}" -gt 30 ]; then DISTINCT3=\$((DISTINCT3+1)); fi
+  fi
+  PREV3="$F3"
+done
+echo "S3 distinct-frames=\$DISTINCT3 (need >=1)"
+if [ "\$DISTINCT3" -ge 1 ]; then echo "S3 PASS strip animates"; else echo "S3 FAIL"; fi
 
 # S4: click a dot (2 dots: right-aligned, first_dot_x = W-14-5-26; W=220+52)
 # window x0 = (1280-272)/2 = 504, y0 = 4

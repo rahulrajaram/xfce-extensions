@@ -62,6 +62,7 @@ sleep 1.5
 xfconf-query -c xfce4-terminal-carousel -p /timeout         -n -t uint -s 1   2>/dev/null
 xfconf-query -c xfce4-terminal-carousel -p /slide-interval  -n -t uint -s 2   2>/dev/null
 xfconf-query -c xfce4-terminal-carousel -p /activity-window -n -t uint -s 100 2>/dev/null
+xfconf-query -c xfce4-terminal-carousel -p /rail-speed      -n -t uint -s 40  2>/dev/null
 
 "$DEVTERM" --geometry 100x20 >/dev/null 2>&1 &
 sleep 3
@@ -126,28 +127,48 @@ else
   echo "A3b FAIL rail never left 0.00"
 fi
 
-# A7: continuous drift speed — the log prints rail velocity in idx/s;
-# ground speed = vel * pitch (CARD_W + CARD_GAP = 676 px). Expect ~20 px/s.
-RAILVEL=\$(grep -oE 'vel=[0-9.]+' "$OUT/plasma.log" | tail -1 | cut -d= -f2)
-PXPERSEC=\$(awk -v v="\$RAILVEL" "BEGIN{printf \"%.0f\", v*676}")
-echo "A7 drift-speed=\$PXPERSEC px/s (expect ~20)"
-if [ "\$PXPERSEC" -ge 15 ] && [ "\$PXPERSEC" -le 30 ]; then
-  echo "A7 PASS constant ~20px/s drift"
+# A7: continuous drift speed — the log prints rail velocity in idx/s but
+# throttled to every 120 frames; take the max observed (cruising speed,
+# immune to accel-ramp and hover-dip samples). ground = vel * pitch 676.
+MAXVEL=\$(grep -oE 'vel=[0-9.]+' "$OUT/plasma.log" | cut -d= -f2 | sort -n | tail -1)
+PXPERSEC=\$(awk -v v="\$MAXVEL" "BEGIN{printf \"%.0f\", v*676}")
+echo "A7 drift-speed(max)=\$PXPERSEC px/s (expect ~40)"
+if [ "\$PXPERSEC" -ge 35 ] && [ "\$PXPERSEC" -le 55 ]; then
+  echo "A7 PASS constant ~40px/s drift"
 else
-  echo "A7 FAIL drift speed out of range (\$PXPERSEC)"
+  echo "A7 FAIL drift speed out of range (\$PXPERSEC, maxvel=\$MAXVEL)"
 fi
 
-# A4: click hides promptly (threshold 1s so check within 0.5s)
+# A8: hover pauses the drift — move the pointer over a card and confirm
+# the rail velocity eases to 0 ("pausing" in the hover log)
+xdotool mousemove 640 400
+sleep 1.5
+if grep -iE 'pausing|over card' "$OUT/plasma.log" >/dev/null; then
+  echo "A8 PASS hover registers and pauses"
+  # pointer still over the card => still visible (not dismissed)
+  STILLVIS=\$(timeout 5 xdotool search --name xfce4-terminal-plasma | head -1)
+  if [ -n "\$STILLVIS" ]; then echo "A8b PASS overlay stays up while hovering"; else echo "A8b FAIL overlay dismissed on hover"; fi
+else
+  echo "A8 FAIL hover never registered"
+fi
+
+# A9: q / Escape quits — press Escape and the overlay hides immediately
+xdotool key Escape
+sleep 0.5
+QUITGONE=\$(timeout 5 xdotool search --onlyvisible --name xfce4-terminal-plasma | head -1)
+if [ -z "\$QUITGONE" ]; then echo "A9 PASS Escape quits the motion"; else echo "A9 FAIL overlay still present after Escape"; fi
+
+# A5: re-appears after idle recurs (post-quit)
+sleep 5
+RE=\$(timeout 5 xdotool search --onlyvisible --name xfce4-terminal-plasma | head -1)
+if [ -n "\$RE" ]; then echo "A5 PASS overlay re-appears after idle"; else echo "A5 FAIL no re-appearance"; fi
+
+# A4: click hides promptly (on the re-appeared overlay)
 xdotool mousemove 640 400
 xdotool click 1
 sleep 0.5
 HIDDEN=\$(timeout 5 xdotool search --onlyvisible --name xfce4-terminal-plasma | head -1)
 if [ -z "\$HIDDEN" ]; then echo "A4 PASS click hides overlay"; else echo "A4 FAIL overlay still visible after click"; fi
-
-# A5: re-appears after idle recurs
-sleep 5
-RE=\$(timeout 5 xdotool search --onlyvisible --name xfce4-terminal-plasma | head -1)
-if [ -n "\$RE" ]; then echo "A5 PASS overlay re-appears after idle"; else echo "A5 FAIL no re-appearance"; fi
 
 echo "--- plasma.log tail ---"
 grep -E 'shown|slide|rail=|hidden|poll' "$OUT/plasma.log" | tail -14
