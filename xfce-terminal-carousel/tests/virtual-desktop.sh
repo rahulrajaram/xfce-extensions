@@ -40,16 +40,34 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ---- start the display backend ----
+# ---- start the display backend (fail fast if unavailable) ----
 case "$BACKEND" in
-  xvfb)   Xvfb "$DISP" -screen 0 1280x800x24 >"$OUT/xvfb.log" 2>&1 & XVFB_PID=$! ;;
-  xephyr) Xephyr "$DISP" -screen 1280x800 -ac >"$OUT/xephyr.log" 2>&1 & XVFB_PID=$! ;;
+  xvfb)
+    command -v Xvfb >/dev/null || { echo "Xvfb missing — install: sudo apt install -y xvfb"; exit 2; }
+    Xvfb "$DISP" -screen 0 1280x800x24 >"$OUT/xvfb.log" 2>&1 & XVFB_PID=$! ;;
+  xephyr)
+    if ! command -v Xephyr >/dev/null; then
+      echo "Xephyr missing — visible nested desktop needs:"
+      echo "    sudo apt install -y xserver-xephyr"
+      echo "(Xvfb backend works without it: tests/virtual-desktop.sh)"
+      exit 2
+    fi
+    Xephyr "$DISP" -screen 1280x800 -ac >"$OUT/xephyr.log" 2>&1 & XVFB_PID=$! ;;
   *) echo "unknown backend $BACKEND (xvfb|xephyr)"; exit 2 ;;
 esac
+
+# give the backend a moment, then hard-fail if the display never came up
+# (otherwise every downstream tool reports confusing dead-display errors)
+UP=0
 for i in $(seq 1 20); do
-  DISPLAY="$DISP" xdpyinfo >/dev/null 2>&1 && break
+  if DISPLAY="$DISP" xdpyinfo >/dev/null 2>&1; then UP=1; break; fi
   sleep 0.5
 done
+if [ "$UP" != "1" ]; then
+  echo "ERROR: display $DISP never came up ($BACKEND). Log tail:"
+  tail -6 "$OUT/${BACKEND}.log" 2>/dev/null
+  exit 2
+fi
 
 # ---- private D-Bus session + xfconfd (isolated from the real session bus) ----
 dbus-run-session -- bash -s >"$OUT/session.log" 2>&1 <<EOS &
