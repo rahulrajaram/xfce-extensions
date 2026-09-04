@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=External Monitor Settings
+Comment=Control brightness and night mode on external monitors
+Exec=/home/rahul/.local/bin/xfce4-monitor-settings
+Icon=video-display
+Terminal=false
+Type=Application
+Categories=XFCE;GTK;Settings;DesktopSettings;X-XFCE-SettingsDialog;X-XFCE-HardwareSettings;
+OnlyShowIn=XFCE;
