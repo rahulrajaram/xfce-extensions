@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal Carousel
+Comment=Rotate active xfce4-terminal tabs while the computer is idle
+Exec=xfce4-terminal-carousel
+Icon=utilities-terminal
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
