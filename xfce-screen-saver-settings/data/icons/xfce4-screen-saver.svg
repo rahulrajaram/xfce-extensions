@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- xfce4-screen-saver — monitor with a crescent moon + star (idle screen) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23273a"/>
+      <stop offset="1" stop-color="#12141c"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4b4f57"/>
+      <stop offset="1" stop-color="#3c3f45"/>
+    </linearGradient>
+  </defs>
+
+  <!-- stand -->
+  <rect x="112" y="212" width="32" height="22" rx="3" fill="#3c3f45"/>
+  <rect x="76" y="228" width="104" height="10" rx="5" fill="#33363b"/>
+
+  <!-- bezel -->
+  <rect x="52" y="48" width="152" height="164" rx="12" fill="url(#bezel)"/>
+
+  <!-- screen -->
+  <rect x="62" y="58" width="132" height="144" rx="6" fill="url(#screen)"/>
+
+  <!-- crescent moon -->
+  <path d="M 110 116
+           A 22 22 0 0 1 118 128
+           A 30 30 0 1 0 106 120
+           Z"
+        fill="#d9e0ea" fill-opacity="0.95"/>
+
+  <!-- small star + glow -->
+  <circle cx="150" cy="92" r="5" fill="#9fb4ff" fill-opacity="0.35"/>
+  <path d="M 150 92 l 5 -8 l 2 2 l 3 6 l -5 -4 l -2 2 Z" fill="#e8eeff"/>
+
+  <!-- tiny stars -->
+  <circle cx="150" cy="100" r="1.4" fill="#c9d6f5"/>
+  <circle cx="96" cy="86" r="1.1" fill="#c9d6f5"/>
+  <circle cx="170" cy="120" r="1.2" fill="#c9d6f5"/>
+</svg>

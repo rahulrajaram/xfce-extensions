@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# make-wallpaper-slideshow — render ~/Pictures/wallpapers into one mp4 where
+# every cut uses a RANDOM PowerPoint-style transition, for the screensaver.
+#
+# Transitions drawn from ffmpeg xfade's named set (fade, slide*, wipe*,
+# circle*, smooth*, zoomin...). Output lands in ~/Videos/screensavers/ where
+# saver-videoloop (the screensaver wrapper) picks it up.
+#
+# Usage:
+#   make-wallpaper-slideshow                 # default: ~/Pictures/wallpapers -> 1920x1080
+#   make-wallpaper-slideshow /path/to/dir    # other folder
+# Env: SLIDESHOW_SCALE=3840x2160  SLIDESHOW_DUR=4  SLIDESHOW_TRANS=1.2
+#      MAX_IMAGES=60  (0 = all)
+set -u
+SRC="${1:-${SLIDESHOW_DIR:-$HOME/Pictures/wallpapers}}"
+SCALE="${SLIDESHOW_SCALE:-1920x1080}"
+DUR="${SLIDESHOW_DUR:-4}"        # seconds each image is fully visible
+TRANS="${SLIDESHOW_TRANS:-1.2}"  # transition duration
+MAX="${MAX_IMAGES:-60}"
+OUTDIR="${SAVER_VIDEO_DIR:-$HOME/Videos/screensavers}"
+OUT="$OUTDIR/wallpaper-slideshow.mp4"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+[ -d "$SRC" ] || { echo "no such dir: $SRC" >&2; exit 2; }
+mkdir -p "$OUTDIR"
+
+TRANSITIONS="fade slideleft slideright slideup slidedown wipeleft wiperight wipeup wiperight circleopen circleclose smoothleft smoothright smoothup smoothdown zoomin"
+mapfile -t FILES < <(find "$SRC" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | shuf)
+[ "${#FILES[@]}" -gt 1 ] || { echo "need >=2 images in $SRC" >&2; exit 2; }
+[ "$MAX" -gt 0 ] && FILES=("${FILES[@]:0:$MAX}")
+
+echo "rendering ${#FILES[@]} images @$SCALE (each ${DUR}s, trans ${TRANS}s) -> $OUT"
+
+# one short clip per image, cover-crop to the target canvas
+W="${SCALE%%x*}"; H="${SCALE##*x}"
+NPARTS=0
+for f in "${FILES[@]}"; do
+  NPARTS=$((NPARTS+1))
+  ffmpeg -v error -y -loop 1 -i "$f" -vf "scale=${SCALE}:force_original_aspect_ratio=increase,crop=${W}:${H},format=yuv420p" \
+         -t "$DUR" -r 30 -c:v libx264 -preset veryfast -crf 23 "$TMP/p$NPARTS.mp4" || { echo "render failed: $f" >&2; exit 1; }
+done
+
+# chain with a random transition at each cut; offsets: k*(DUR-TRANS)
+CMD=()
+PREV=""
+TRANS_LIST=($TRANSITIONS)
+for k in $(seq 1 $((NPARTS-1))); do
+  OFF=$(awk "BEGIN{print $k*($DUR-$TRANS)}")
+  T="${TRANS_LIST[$((RANDOM % ${#TRANS_LIST[@]}))]}"
+  if [ -z "$PREV" ]; then
+    CMD+=("[0:v][1:v]xfade=transition=$T:duration=$TRANS:offset=$OFF[v$k]")
+    PREV="[v$k]"
+  else
+    CMD+=("$PREV[$k:v]xfade=transition=$T:duration=$TRANS:offset=$OFF[v$k]")
+    PREV="[v$k]"
+  fi
+done
+
+# assemble the inputs list + map the final node
+INPUTS=(); for ((i=0;i<NPARTS;i++)); do INPUTS+=(-i "$TMP/p$((i+1)).mp4"); done
+FILTER=$(IFS=';'; echo "${CMD[*]}")
+ffmpeg -v error -y "${INPUTS[@]}" -filter_complex "$FILTER" -map "[v$((NPARTS-1))]" \
+       -c:v libx264 -preset veryfast -crf 24 -pix_fmt yuv420p "$OUT"
+
+echo "done: $OUT ($(ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "$OUT" 2>/dev/null)s)"

@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# saver-videoloop — modern video-loop screensaver for XScreenSaver.
+#
+# Picks a random video from $SAVER_VIDEO_DIR (default ~/Videos/screensavers)
+# and plays it seamlessly fullscreen via mpv, embedded into XScreenSaver's
+# own window ($XSCREENSAVER_WINDOW), so fade/cursor/activation all work.
+#
+# Add to the saver rotation:
+#   xscreensaver-demo -> Advanced -> "Text & Command" -> Add ->
+#   command:  /home/rahul/.local/bin/saver-videoloop
+set -e
+DIR="${SAVER_VIDEO_DIR:-$HOME/Videos/screensavers}"
+[ -d "$DIR" ] || exit 1
+# prefer the freshly-generated wallpaper slideshow when present (any *slideshow*)
+SLIDESHOW=$(find "$DIR" -maxdepth 1 -type f -iname '*slideshow*' 2>/dev/null | shuf -n1 | head -1)
+if [ -n "$SLIDESHOW" ]; then
+  f="$SLIDESHOW"
+else
+  f=$(find "$DIR" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.mov' \) 2>/dev/null | shuf -n1 | head -1)
+fi
+[ -n "$f" ] || exit 1
+WID="${XSCREENSAVER_WINDOW:-}"
+if [ -n "$WID" ]; then
+  exec mpv --wid="$WID" --loop=inf --no-osc --no-input-default-bindings --really-quiet --mute=yes "$f"
+else
+  exec mpv --fs --loop=inf --no-osc --no-input-default-bindings --really-quiet --mute=yes "$f"
+fi

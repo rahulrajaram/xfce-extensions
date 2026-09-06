@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Screen Saver (apply)
+Comment=Apply the saved screen-saver settings at logon
+Exec=@EXEC_APPLY@
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

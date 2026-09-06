@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# wallpaper-apply — reliably set the XFCE wallpaper for all monitors.
+#
+# Usage:
+#   wallpaper-apply                     # cycle to the next image in the folder
+#   wallpaper-apply /path/to/img.jpg    # set a specific image
+#   wallpaper-apply /path/to/dir        # set the image folder (random next)
+#
+# Why this is the robust way on XFCE 4.18:
+#   * keys the wallpaper under EVERY monitor-name namespace xfdesktop may
+#     consult (numeric monitor0/1 AND named monitorDP-1-0/HDMI-1-0...).
+#   * uses the EXACT display string the session runs (:0.0) for the reload.
+#   * keeps the image + folder local (no /mnt/samba_share surprises).
+set -u
+CH=xfce4-desktop
+SHOW_PREFIX=/backdrop/screen0
+FOLDER="${WALLPAPER_DIR:-$HOME/Pictures/wallpapers}"
+ARG="${1:-}"
+
+# pick if a folder was given / nothing given
+IMG="$ARG"
+if [ -z "$IMG" ] || [ -d "$IMG" ]; then
+  [ -d "$FOLDER" ] || { echo "no wallpaper folder: $FOLDER" >&2; exit 2; }
+  if [ -n "$IMG" ]; then FOLDER="$IMG"; fi
+  IMG=$(find "$FOLDER" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | shuf -n1)
+fi
+[ -n "$IMG" ] && [ -f "$IMG" ] || { echo "bad image: $IMG" >&2; exit 2; }
+
+# which monitor namespaces exist for this machine
+MONITORS=$(xfconf-query -c "$CH" -lv 2>/dev/null | grep -oE 'monitor[A-Za-z0-9-]*' | sort -u)
+[ -n "$MONITORS" ] || MONITORS="monitor0 monitor1 monitorDP-1-0 monitorHDMI-1-0"
+
+apply_one() { # $1 = full property path, $2 = value
+  local key="$1" val="$2"
+  if xfconf-query -c "$CH" -p "$key" >/dev/null 2>&1; then
+    xfconf-query -c "$CH" -p "$key" -s "$val" >/dev/null 2>&1
+  else
+    xfconf-query -c "$CH" -p "$key" -n -t string -s "$val" >/dev/null 2>&1
+  fi
+}
+
+for m in $MONITORS; do
+  apply_one "$SHOW_PREFIX/$m/image-show" true 2>/dev/null
+  apply_one "$SHOW_PREFIX/$m/image-path" "$FOLDER" 2>/dev/null
+  for w in 0 1 2 3; do
+    apply_one "$SHOW_PREFIX/$m/workspace$w/last-image" "$IMG"
+  done
+  apply_one "$SHOW_PREFIX/$m/last-image" "$IMG" 2>/dev/null
+done
+
+xfconf-query -c "$CH" --create -p "$SHOW_PREFIX/workspace0/last-image" -t string -s "$IMG" 2>/dev/null || true
+
+echo "set: $IMG" >&2
+DISPLAY="${DISPLAY:-:0.0}" xfdesktop -R >/dev/null 2>&1

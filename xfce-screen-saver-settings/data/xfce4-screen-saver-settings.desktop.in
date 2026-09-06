@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Screen Saver
+Comment=Configure screen blanking and the screensaver (X11)
+Keywords=saver;screensaver;blank;blanking;lock;idle;dpms;xset;settings;
+Exec=@EXEC_SETTINGS@
+Icon=xfce4-screen-saver
+Terminal=false
+Categories=XFCE;GTK;Settings;DesktopSettings;X-XFCE-SettingsDialog;X-XFCE-SystemSettings;
+OnlyShowIn=XFCE;
+StartupNotify=true
+X-XfcePluggable=true
+X-XfceHelpPage=xscreensaver
