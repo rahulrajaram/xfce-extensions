@@ -1,0 +1,4 @@
+# Research / strategy notes — local only, never commit
+/research/
+# trailing research artifacts (defensive)
+*.research.md
